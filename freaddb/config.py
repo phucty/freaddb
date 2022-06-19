@@ -1,0 +1,19 @@
+ENCODING = "utf-8"
+SIZE_1GB = 1_073_741_824
+
+LMDB_MAX_KEY = 511
+LMDB_MAP_SIZE = 10_737_418_240  # 10GB
+LMDB_BUFF_LIMIT = SIZE_1GB
+
+
+class ToBytesType:
+    OBJ = 0
+    INT_NUMPY = 1
+    INT_BITMAP = 2
+    BYTES = 3
+    PICKLE = 4
+
+
+class DBUpdateType:
+    SET = 0
+    COUNTER = 1
