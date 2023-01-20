@@ -1,8 +1,6 @@
 import shutil
 
-from freaddb import config
-from freaddb.db_lmdb import DBSpec, FReadDB
-from freaddb.utils import profile
+from freaddb.db_lmdb import DBSpec, FReadDB, ToBytes, profile
 from tests import test_freaddb
 
 
@@ -11,8 +9,8 @@ def run_test():
     data_file = "/tmp/freaddb/db_test_1"
     data_schema = [
         DBSpec(name="data1", integerkey=True),
-        DBSpec(name="data2", integerkey=False, bytes_value=config.ToBytes.PICKLE),
-        DBSpec(name="data3", integerkey=False, bytes_value=config.ToBytes.BYTES),
+        DBSpec(name="data2", integerkey=False, bytes_value=ToBytes.PICKLE),
+        DBSpec(name="data3", integerkey=False, bytes_value=ToBytes.BYTES),
         DBSpec(name="data4", integerkey=True, combinekey=True),
     ]
     data = {
@@ -21,12 +19,13 @@ def run_test():
         "data3": [["Một", b"1"], ["Hai", b"2"]],
         "data4": [[(1, 2), "Một"], [(3, 4), "Hai"]],
     }
-    db = FReadDB(data_file, data_schema)
+    db = FReadDB(data_file, data_schema, split_subdatabases=True)
 
     for data_name, data_items in data.items():
         for key, value in data_items:
-            db.add(data_name, key, value)
+            db.add_buff(data_name, key, value)
     db.save_buff()
+    db.compress_subdatabase("data1")
     db.compress()
     db.close()
     db = FReadDB(db_file=data_file, readonly=True)
@@ -42,8 +41,7 @@ def run_test():
 
 @profile
 def run_readme_example():
-    from freaddb import config
-    from freaddb.db_lmdb import DBSpec, FReadDB
+    from freaddb.db_lmdb import SIZE_1GB, DBSpec, FReadDB, ToBytes
 
     # Data file directory
     data_file = "/tmp/freaddb/db_test_basic"
@@ -56,19 +54,19 @@ def run_readme_example():
         DBSpec(
             name="data0",
             integerkey=False,
-            bytes_value=config.ToBytes.OBJ,
+            bytes_value=ToBytes.OBJ,
             compress_value=True,
         ),
         # key are integers, values are python objects serialized with msgpack and no compress values
-        DBSpec(name="data1", integerkey=True, bytes_value=config.ToBytes.OBJ),
+        DBSpec(name="data1", integerkey=True, bytes_value=ToBytes.OBJ),
         # key are strings, values are python objects serialized with pickle
-        DBSpec(name="data2", integerkey=False, bytes_value=config.ToBytes.PICKLE),
+        DBSpec(name="data2", integerkey=False, bytes_value=ToBytes.PICKLE),
         # key are strings, values are bytes
-        DBSpec(name="data3", integerkey=False, bytes_value=config.ToBytes.BYTES),
+        DBSpec(name="data3", integerkey=False, bytes_value=ToBytes.BYTES),
         # key are integers, values are list integers serialized with numpy
-        DBSpec(name="data4", integerkey=True, bytes_value=config.ToBytes.INT_NUMPY),
+        DBSpec(name="data4", integerkey=True, bytes_value=ToBytes.INT_NUMPY),
         # key are integers, values are list integers serialized with BITMAP
-        DBSpec(name="data5", integerkey=True, bytes_value=config.ToBytes.INT_BITMAP),
+        DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
         # key are combination of two integers
         DBSpec(name="data6", integerkey=True, combinekey=True),
         # key are combination of three integers
@@ -94,12 +92,13 @@ def run_readme_example():
     to_list_data = {"data4", "data5"}
 
     # Create data with data_file, data_schema, and buffer is 1GB
-    db = FReadDB(db_file=data_file, db_schema=data_schema, buff_limit=config.SIZE_1GB)
+    db = FReadDB(db_file=data_file, db_schema=data_schema, buff_limit=SIZE_1GB)
 
     # Add data to FReadDB
     for data_name, data_items in data.items():
         for key, value in data_items.items():
-            db.add(data_name, key, value)
+            db.add_buff(data_name, key, value)
+    # db.delete_buff("data0", "One")
 
     # Make sure save all buffer to disk
     db.save_buff()

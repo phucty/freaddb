@@ -1,8 +1,6 @@
 import shutil
 
-from freaddb import config
-from freaddb.db_lmdb import DBSpec, FReadDB
-from freaddb.utils import profile
+from freaddb.db_lmdb import SIZE_1GB, DBSpec, FReadDB, ToBytes, profile
 
 
 @profile
@@ -13,14 +11,14 @@ def test_db_basic():
         DBSpec(
             name="data0",
             integerkey=False,
-            bytes_value=config.ToBytes.OBJ,
+            bytes_value=ToBytes.OBJ,
             compress_value=True,
         ),
-        DBSpec(name="data1", integerkey=True, bytes_value=config.ToBytes.OBJ),
-        DBSpec(name="data2", integerkey=False, bytes_value=config.ToBytes.PICKLE),
-        DBSpec(name="data3", integerkey=False, bytes_value=config.ToBytes.BYTES),
-        DBSpec(name="data4", integerkey=True, bytes_value=config.ToBytes.INT_NUMPY),
-        DBSpec(name="data5", integerkey=True, bytes_value=config.ToBytes.INT_BITMAP),
+        DBSpec(name="data1", integerkey=True, bytes_value=ToBytes.OBJ),
+        DBSpec(name="data2", integerkey=False, bytes_value=ToBytes.PICKLE),
+        DBSpec(name="data3", integerkey=False, bytes_value=ToBytes.BYTES),
+        DBSpec(name="data4", integerkey=True, bytes_value=ToBytes.INT_NUMPY),
+        DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
         DBSpec(name="data6", integerkey=True, combinekey=True),
         DBSpec(
             name="data7",
@@ -41,10 +39,10 @@ def test_db_basic():
     }
     to_list_data = {"data4", "data5"}
 
-    db = FReadDB(db_file=data_file, db_schema=data_schema, buff_limit=config.SIZE_1GB)
+    db = FReadDB(db_file=data_file, db_schema=data_schema, buff_limit=SIZE_1GB)
     for data_name, data_items in data.items():
         for key, value in data_items.items():
-            db.add(data_name, key, value)
+            db.add_buff(data_name, key, value)
     db.save_buff()
     db.compress()
     db.close()
@@ -70,14 +68,14 @@ def test_db_basic_split_databases():
         DBSpec(
             name="data0",
             integerkey=False,
-            bytes_value=config.ToBytes.OBJ,
+            bytes_value=ToBytes.OBJ,
             compress_value=True,
         ),
-        DBSpec(name="data1", integerkey=True, bytes_value=config.ToBytes.OBJ),
-        DBSpec(name="data2", integerkey=False, bytes_value=config.ToBytes.PICKLE),
-        DBSpec(name="data3", integerkey=False, bytes_value=config.ToBytes.BYTES),
-        DBSpec(name="data4", integerkey=True, bytes_value=config.ToBytes.INT_NUMPY),
-        DBSpec(name="data5", integerkey=True, bytes_value=config.ToBytes.INT_BITMAP),
+        DBSpec(name="data1", integerkey=True, bytes_value=ToBytes.OBJ),
+        DBSpec(name="data2", integerkey=False, bytes_value=ToBytes.PICKLE),
+        DBSpec(name="data3", integerkey=False, bytes_value=ToBytes.BYTES),
+        DBSpec(name="data4", integerkey=True, bytes_value=ToBytes.INT_NUMPY),
+        DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
         DBSpec(name="data6", integerkey=True, combinekey=True),
         DBSpec(
             name="data7",
@@ -101,12 +99,12 @@ def test_db_basic_split_databases():
     db = FReadDB(
         db_file=data_file,
         db_schema=data_schema,
-        buff_limit=config.SIZE_1GB,
+        buff_limit=SIZE_1GB,
         split_subdatabases=True,
     )
     for data_name, data_items in data.items():
         for key, value in data_items.items():
-            db.add(data_name, key, value)
+            db.add_buff(data_name, key, value)
     db.save_buff()
     db.compress()
     db.close()
@@ -132,12 +130,12 @@ def test_db_large():
         DBSpec(
             name="data0",
             integerkey=True,
-            bytes_value=config.ToBytes.INT_BITMAP,
+            bytes_value=ToBytes.INT_BITMAP,
         ),
         DBSpec(
             name="data1",
             integerkey=False,
-            bytes_value=config.ToBytes.OBJ,
+            bytes_value=ToBytes.OBJ,
             compress_value=True,
         ),
     ]
@@ -150,10 +148,10 @@ def test_db_large():
     }
     to_list_data = {"data0"}
 
-    db = FReadDB(db_file=data_file, db_schema=data_schema, buff_limit=config.SIZE_1GB)
+    db = FReadDB(db_file=data_file, db_schema=data_schema, buff_limit=SIZE_1GB)
     for data_name, data_items in data.items():
         for key, value in data_items.items():
-            db.add(data_name, key, value)
+            db.add_buff(data_name, key, value)
     db.save_buff()
     db.compress()
     db.close()
@@ -174,17 +172,17 @@ def test_db_large_split():
         DBSpec(
             name="data0",
             integerkey=True,
-            bytes_value=config.ToBytes.INT_BITMAP,
+            bytes_value=ToBytes.INT_BITMAP,
         ),
         DBSpec(
             name="data1",
             integerkey=False,
-            bytes_value=config.ToBytes.OBJ,
+            bytes_value=ToBytes.OBJ,
             compress_value=True,
         ),
     ]
 
-    limit = 1_000
+    limit = 1_000_00
 
     data = {
         "data0": {i: list(range(100)) for i in range(limit)},
@@ -195,12 +193,13 @@ def test_db_large_split():
     db = FReadDB(
         db_file=data_file,
         db_schema=data_schema,
-        buff_limit=config.SIZE_1GB,
+        buff_limit=SIZE_1GB,
         split_subdatabases=True,
     )
     for data_name, data_items in data.items():
         for key, value in data_items.items():
-            db.add(data_name, key, value)
+            db.add_buff(data_name, key, value, is_serialize_value=False)
+
     db.save_buff()
     db.compress()
     db.close()
