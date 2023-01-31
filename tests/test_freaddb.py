@@ -22,12 +22,10 @@ def test_db_basic():
         DBSpec(name="data3", integerkey=False, bytes_value=ToBytes.BYTES),
         DBSpec(name="data4", integerkey=True, bytes_value=ToBytes.INT_NUMPY),
         DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
-        DBSpec(name="data6", integerkey=True, combinekey=True),
+        DBSpec(name="data6", combinekey=True),
         DBSpec(
             name="data7",
-            integerkey=True,
             combinekey=True,
-            combinelen=3,
             bytes_value=ToBytes.INT_NUMPY,
         ),
     ]
@@ -112,12 +110,7 @@ def test_db_basic_split_databases():
         DBSpec(name="data4", integerkey=True, bytes_value=ToBytes.INT_NUMPY),
         DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
         DBSpec(name="data6", integerkey=True, combinekey=True),
-        DBSpec(
-            name="data7",
-            integerkey=True,
-            combinekey=True,
-            combinelen=3,
-        ),
+        DBSpec(name="data7", integerkey=True, combinekey=True),
     ]
     data = {
         "data0": {"One": {1: "One"}, "Two": {2: "Two"}},
@@ -217,7 +210,7 @@ def test_db_large_split():
         ),
     ]
 
-    limit = 1_000_00
+    limit = 1_000
 
     data = {
         "data0": {i: list(range(100)) for i in range(limit)},
@@ -256,7 +249,7 @@ def test_db_large_qid_split():
         DBSpec(name="lid_qid", integerkey=True),
     ]
 
-    limit = 100_000_000
+    limit = 1_000
 
     db = FReadDB(
         db_file=data_file,

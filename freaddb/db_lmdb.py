@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
+from numbers import Number
 from typing import Any, ByteString, Callable, Iterator, List, Optional, Tuple, Union
 
 import lmdb
@@ -67,8 +68,26 @@ def deserialize_key(
     integerkey=False,
     is_64bit=False,
     combinekey: bool = False,
-    combinelen: int = 2,
+    deliminator: str = "|",
 ) -> Union[int, str]:
+    if combinekey:
+        # if integerkey:
+        step = 8 if is_64bit else 4
+        cur = 0
+        key_parts = []
+        while cur <= len(key):
+            start = cur
+            end = cur + step
+            if end > len(key):
+                break
+            key_parts.append(
+                deserialize_key(key[start:end], integerkey=True, is_64bit=is_64bit)
+            )
+            cur = end + 1
+        return tuple(key_parts)
+        # If not integerkey
+        # return tuple(key.decode(ENCODING).split(deliminator))
+        # return ValueError
 
     # String key
     if not integerkey:
@@ -76,15 +95,10 @@ def deserialize_key(
             key = key.tobytes()
         return key.decode(ENCODING)
 
-    # Integer key
-    format_template = "Q" if is_64bit else "I"
-    # Tuple integer key
-    if combinekey:
-        format_template = format_template * combinelen
-        return struct.unpack(format_template, key)
-
-    # Single integer key
-    return struct.unpack(format_template, key)[0]
+    if is_64bit:
+        return struct.unpack("Q", key)[0]
+    else:
+        return struct.unpack("I", key)[0]
 
 
 def deserialize_value(
@@ -122,7 +136,6 @@ def deserialize(
     value: ByteString,
     integerkey: bool = False,
     combinekey: bool = False,
-    combinelen: int = 2,
     is_64bit: bool = False,
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
@@ -132,7 +145,6 @@ def deserialize(
         integerkey=integerkey,
         is_64bit=is_64bit,
         combinekey=combinekey,
-        combinelen=combinelen,
     )
     value = deserialize_value(
         value=value, bytes_value=bytes_value, compress_value=compress_value
@@ -146,30 +158,38 @@ def serialize_key(
     integerkey: bool = False,
     combinekey: bool = False,
     is_64bit: bool = False,
-    combinelen: int = 2,
+    deliminator: str = "|",
+    get_postfix_deliminator: bool = False,
 ) -> ByteString:
+    if combinekey:
+        # if integerkey:
+        if not isinstance(key[0], Number):
+            raise ValueError("Error: Please use int key tuple")
+        results = [serialize_key(k, integerkey=True, is_64bit=is_64bit) for k in key]
+        deliminator_bytes = "|".encode(ENCODING)
+        results = deliminator_bytes.join(results)
+        if get_postfix_deliminator:
+            results += serialize_key(deliminator)
+        return results[:LMDB_MAX_KEY]
+        # return ValueError
+        # If not integerkey
+        # results = "|".join([str(k) for k in key])
+        # if get_postfix_deliminator:
+        #     results += "|"
+        # return results.encode(ENCODING)[:LMDB_MAX_KEY]
+
     if not integerkey:
         if not isinstance(key, str):
             key = str(key)
         return key.encode(ENCODING)[:LMDB_MAX_KEY]
 
-    # Integer key
-    format_template = "Q" if is_64bit else "I"
-    # Tuple integer key
-    if isinstance(key, tuple):
-        combinelen = len(key)
-    if combinekey:
-        format_template = format_template * combinelen
-        return struct.pack(format_template, *key)
-
-    if (
-        not isinstance(key, int)
-        and not isinstance(key, list)
-        and not isinstance(key, tuple)
-    ):
+    if not isinstance(key, int) and hasattr(key, "is_integer") and not key.is_integer():
         raise TypeError
 
-    return struct.pack(format_template, key)
+    if is_64bit:
+        return struct.pack("Q", key)
+    else:
+        return struct.pack("I", key)
 
 
 def serialize_value(
@@ -210,7 +230,6 @@ def serialize(
     value: Any,
     integerkey: bool = False,
     combinekey: bool = False,
-    combinelen: int = 2,
     is_64bit: bool = False,
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
@@ -219,7 +238,6 @@ def serialize(
         key=key,
         integerkey=integerkey,
         combinekey=combinekey,
-        combinelen=combinelen,
         is_64bit=is_64bit,
     )
     value = serialize_value(
@@ -233,7 +251,6 @@ def preprocess_data_before_dump(
     data: List[Any],
     integerkey: bool = False,
     combinekey: bool = False,
-    combinelen: int = 2,
     is_64bit: bool = False,
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
@@ -258,7 +275,6 @@ def preprocess_data_before_dump(
                 key=k,
                 integerkey=integerkey,
                 combinekey=combinekey,
-                combinelen=combinelen,
                 is_64bit=is_64bit,
             )
         if to_bytes_value:
@@ -319,14 +335,12 @@ class DBSpec:
     bytes_value: bool = ToBytes.OBJ
     compress_value: bool = False
     combinekey: bool = False
-    combinelen: int = 2
 
     def get_key_args(self):
         return {
             "integerkey": self.integerkey,
             "is_64bit": self.is_64bit,
             "combinekey": self.combinekey,
-            "combinelen": self.combinelen,
         }
 
     def get_value_args(self):
@@ -337,7 +351,6 @@ class DBSpec:
             "integerkey": self.integerkey,
             "is_64bit": self.is_64bit,
             "combinekey": self.combinekey,
-            "combinelen": self.combinelen,
             "bytes_value": self.bytes_value,
             "compress_value": self.compress_value,
         }
@@ -445,7 +458,8 @@ class FReadDB:
                     )
                 else:
                     self.env[db_spec.name].set_mapsize(self.map_size)
-
+            if db_spec.combinekey:
+                db_spec.integerkey = False
             self.dbs[db_spec.name] = self.env[db_spec.name].open_db(
                 db_spec.name.encode(ENCODING), integerkey=db_spec.integerkey
             )

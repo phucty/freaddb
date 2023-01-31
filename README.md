@@ -43,8 +43,7 @@ data_schema = [
     DBSpec(
         name="data7",
         integerkey=True,
-        combinekey=True,
-        combinelen=3,
+        combinekey=True
     ),
 ]
 

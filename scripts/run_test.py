@@ -69,14 +69,9 @@ def run_readme_example():
         # key are integers, values are list integers serialized with BITMAP
         DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
         # key are combination of two integers
-        DBSpec(name="data6", integerkey=True, combinekey=True),
+        DBSpec(name="data6", combinekey=True),
         # key are combination of three integers
-        DBSpec(
-            name="data7",
-            integerkey=True,
-            combinekey=True,
-            combinelen=3,
-        ),
+        DBSpec(name="data7", combinekey=True),
     ]
 
     # Example data
@@ -113,6 +108,12 @@ def run_readme_example():
 
     # Access data
     # Get a key
+    sample = db.get_value("data6", (1, 2))
+    assert sample == "One"
+
+    sample = db.get_value("data7", (1, 2, 3))
+    assert sample == "One"
+
     sample = db.get_value("data1", 1)
     assert sample == "One"
 
@@ -125,11 +126,11 @@ def run_readme_example():
 
 
 if __name__ == "__main__":
-    # run_readme_example()
-    # run_test()
+    run_readme_example()
+    run_test()
     test_freaddb.test_db_basic()
-    # test_freaddb.test_db_basic_split_databases()
-    # test_freaddb.test_db_large()
-    # test_freaddb.test_db_large_split()
-    # test_freaddb.test_db_large_qid_split()
+    test_freaddb.test_db_basic_split_databases()
+    test_freaddb.test_db_large()
+    test_freaddb.test_db_large_split()
+    test_freaddb.test_db_large_qid_split()
     # bench.bench_trie_vs_lmdb(limit=100_000_0)
