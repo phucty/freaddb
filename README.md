@@ -38,13 +38,9 @@ data_schema = [
     # key are integers, values are list integers serialized with BITMAP
     DBSpec(name="data5", integerkey=True, bytes_value=ToBytes.INT_BITMAP),
     # key are combination of two integers
-    DBSpec(name="data6", integerkey=True, combinekey=True),
+    DBSpec(name="data6", combinekey=True),
     # key are combination of three integers
-    DBSpec(
-        name="data7",
-        integerkey=True,
-        combinekey=True
-    ),
+    DBSpec(name="data7", combinekey=True),
 ]
 
 # Example data
@@ -81,13 +77,20 @@ db = FReadDB(db_file=data_file, readonly=True)
 
 # Access data
 # Get a key
+sample = db.get_value("data6", (1, 2))
+assert sample == "One"
+
+sample = db.get_value("data7", (1, 2, 3))
+assert sample == "One"
+
 sample = db.get_value("data1", 1)
 assert sample == "One"
 
-# Get many keys
 for data_name, data_samples in data.items():
     sample = db.get_values(data_name, list(data_samples.keys()))
     if data_name in to_list_data:
         sample = {k: list(v) for k, v in sample.items()}
     assert sample == data_samples
+
+print(json.dumps(db.stats(), indent=2))
 ```

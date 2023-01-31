@@ -10,7 +10,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
 from numbers import Number
-from typing import Any, ByteString, Callable, Iterator, List, Optional, Tuple, Union
+from typing import (Any, ByteString, Callable, Iterator, List, Optional, Tuple,
+                    Union)
 
 import lmdb
 import msgpack
@@ -465,6 +466,35 @@ class FReadDB:
             )
 
         return True
+
+    def stats(self, pretty: bool = True, head: int = 1):
+        results = {
+            "directory": self.db_file,
+            "size": self.get_db_total_size(pretty=pretty),
+            "items": dict(),
+            "datatype": dict(),
+        }
+        for db_name in self.db_schema.keys():
+            results["items"][db_name] = self.get_number_items_from(db_name)
+
+        for db_name in self.db_schema.keys():
+            tmp = self.head(db_name, n=1)
+            if tmp:
+                k, v = tmp.popitem()
+                results["datatype"][db_name] = f"{type(k)}: {type(v)}"
+
+        if not head:
+            return results
+
+        results["head"] = dict()
+
+        for db_name in self.db_schema.keys():
+            tmp = self.head(db_name, n=1)
+            if tmp:
+                k, v = tmp.popitem()
+                results["head"][db_name] = f"{str(k)[:30]}: {str(v)[:50]}"
+
+        return results
 
     def get_db_total_size(self, pretty: bool = True) -> str:
         if not self.split_subdatabases:
