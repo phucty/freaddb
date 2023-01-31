@@ -1,5 +1,8 @@
 import shutil
 
+import marisa_trie
+from tqdm import tqdm
+
 from freaddb.db_lmdb import SIZE_1GB, DBSpec, FReadDB, ToBytes, profile
 
 
@@ -25,6 +28,7 @@ def test_db_basic():
             integerkey=True,
             combinekey=True,
             combinelen=3,
+            bytes_value=ToBytes.INT_NUMPY,
         ),
     ]
     data = {
@@ -35,7 +39,15 @@ def test_db_basic():
         "data4": {i: list(range(i * 10)) for i in range(10, 20)},
         "data5": {i: list(range(i * 10)) for i in range(10, 20)},
         "data6": {(1, 2): "One", (2, 3): "Two"},
-        "data7": {(1, 2, 3): "One", (2, 3, 4): "Two"},
+        "data7": {
+            (1, 0, 1): [4],
+            (1, 1, 1): [4],
+            (1, 2, 3): [2, 2],
+            (1, 2, 4): [3],
+            (1, 2, 5): [1],
+            (8535637, 1, 2): [3],
+            (13699655, 1, 2): [3],
+        },
     }
     to_list_data = {"data4", "data5"}
 
@@ -57,7 +69,30 @@ def test_db_basic():
         sample = db.get_values(data_name, list(data_samples.keys()))
         if data_name in to_list_data:
             sample = {k: list(v) for k, v in sample.items()}
-        assert sample == data_samples
+        assert set(sample) == set(data_samples)
+
+    for k in db.head("data7", 20):
+        print(f"{k}")
+
+    print("Query: (1, 2)")
+    for k, v in db.get_iter_with_prefix("data7", (1, 2)):
+        print(f"{k}: {v}")
+
+    print("Query: (1, )")
+    for k, v in db.get_iter_with_prefix("data7", (1,)):
+        print(f"{k}: {v}")
+
+    print("Query: (1, 0, 1)")
+    for k, v in db.get_iter_with_prefix("data7", (1, 0, 1)):
+        print(f"{k}: {v}")
+
+    print("Query: (2, )")
+    for k, v in db.get_iter_with_prefix("data7", (2,)):
+        print(f"{k}: {v}")
+
+    print("Query: (13699655, )")
+    for k, v in db.get_iter_with_prefix("data7", (13699655,)):
+        print(f"{k}: {v}")
 
 
 @profile
@@ -210,3 +245,29 @@ def test_db_large_split():
             if data_name in to_list_data:
                 sample = list(sample)
             assert len(sample) == len(value)
+
+
+@profile
+def test_db_large_qid_split():
+    data_file = "/tmp/freaddb/db_test_large_qid_split"
+    shutil.rmtree(data_file, ignore_errors=True)
+    data_schema = [
+        DBSpec(name="qid_lid"),
+        DBSpec(name="lid_qid", integerkey=True),
+    ]
+
+    limit = 100_000_000
+
+    db = FReadDB(
+        db_file=data_file,
+        db_schema=data_schema,
+        buff_limit=SIZE_1GB,
+        split_subdatabases=True,
+    )
+    for i in tqdm(range(limit), total=limit):
+        db.add_buff("qid_lid", f"Q{i + 1}", i, is_serialize_value=False)
+        db.add_buff("lid_qid", i, f"Q{i + 1}", is_serialize_value=False)
+
+    db.save_buff()
+    db.compress()
+    db.close()

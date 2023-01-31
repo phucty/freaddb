@@ -1,13 +1,14 @@
-import dataclasses
 import gc
 import math
 import os
 import pickle
 import random
 import struct
+import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Any, ByteString, Callable, Iterator, List, Optional, Tuple, Union
 
 import lmdb
@@ -26,7 +27,7 @@ LMDB_MAP_SIZE = SIZE_1GB
 LMDB_BUFF_LIMIT = SIZE_1GB
 
 
-class ToBytes:
+class ToBytes(int, Enum):
     OBJ = 0
     INT_NUMPY = 1
     INT_BITMAP = 2
@@ -34,7 +35,7 @@ class ToBytes:
     PICKLE = 4
 
 
-class DBUpdateType:
+class DBUpdateType(int, Enum):
     SET = 0
     COUNTER = 1
 
@@ -67,7 +68,6 @@ def deserialize_key(
     is_64bit=False,
     combinekey: bool = False,
     combinelen: int = 2,
-    **kawgs,
 ) -> Union[int, str]:
 
     # String key
@@ -91,7 +91,6 @@ def deserialize_value(
     value: ByteString,
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
-    **kawgs,
 ) -> Any:
     if bytes_value == ToBytes.INT_NUMPY:
         value = numpy.frombuffer(value, dtype=numpy.uint32)
@@ -127,7 +126,6 @@ def deserialize(
     is_64bit: bool = False,
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
-    **kawgs,
 ) -> Tuple[Any, Any]:
     key = deserialize_key(
         key=key,
@@ -149,7 +147,6 @@ def serialize_key(
     combinekey: bool = False,
     is_64bit: bool = False,
     combinelen: int = 2,
-    **kawgs,
 ) -> ByteString:
     if not integerkey:
         if not isinstance(key, str):
@@ -159,6 +156,8 @@ def serialize_key(
     # Integer key
     format_template = "Q" if is_64bit else "I"
     # Tuple integer key
+    if isinstance(key, tuple):
+        combinelen = len(key)
     if combinekey:
         format_template = format_template * combinelen
         return struct.pack(format_template, *key)
@@ -178,7 +177,6 @@ def serialize_value(
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
     sort_values: bool = True,
-    **kawgs,
 ) -> ByteString:
     def set_default(obj):
         if isinstance(obj, set):
@@ -216,7 +214,6 @@ def serialize(
     is_64bit: bool = False,
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
-    **kawgs,
 ) -> Tuple[ByteString, ByteString]:
     key = serialize_key(
         key=key,
@@ -241,7 +238,6 @@ def preprocess_data_before_dump(
     bytes_value: ToBytes = ToBytes.OBJ,
     compress_value: bool = False,
     sort_key: bool = True,
-    **kwargs,
 ) -> List[Any]:
     if isinstance(data, dict):
         data = list(data.items())
@@ -309,13 +305,13 @@ def profile(func: Callable):
         mem_after = process.memory_info()
         rss = get_file_size(mem_after.rss - mem_before.rss)
         vms = get_file_size(mem_after.vms - mem_before.vms)
-        print(f"{func.__name__}\tTime: {end}\tRSS: {rss}\tVMS: {vms}")
+        print(f"Time: {end}\tRSS: {rss}\tVMS: {vms}\t{func.__name__}")
         return result
 
     return wrapper
 
 
-@dataclass
+@dataclass()
 class DBSpec:
     name: str
     integerkey: bool = False
@@ -324,6 +320,27 @@ class DBSpec:
     compress_value: bool = False
     combinekey: bool = False
     combinelen: int = 2
+
+    def get_key_args(self):
+        return {
+            "integerkey": self.integerkey,
+            "is_64bit": self.is_64bit,
+            "combinekey": self.combinekey,
+            "combinelen": self.combinelen,
+        }
+
+    def get_value_args(self):
+        return {"bytes_value": self.bytes_value, "compress_value": self.compress_value}
+
+    def get_args(self):
+        return {
+            "integerkey": self.integerkey,
+            "is_64bit": self.is_64bit,
+            "combinekey": self.combinekey,
+            "combinelen": self.combinelen,
+            "bytes_value": self.bytes_value,
+            "compress_value": self.compress_value,
+        }
 
 
 class FReadDB:
@@ -336,6 +353,20 @@ class FReadDB:
         buff_limit: int = LMDB_BUFF_LIMIT,
         split_subdatabases=False,
     ):
+        __slots__ = [
+            "db_file",
+            "metadata_file",
+            "db_schema",
+            "buff_limit",
+            "split_subdatabases",
+            "max_db",
+            "map_size",
+            "readonly",
+            "env",
+            "buff",
+            "buff_size",
+        ]
+
         db_file_name = db_file.split("/")[-1]
         self.db_file = db_file + f"/{db_file_name}"
         create_dir(self.db_file)
@@ -366,7 +397,7 @@ class FReadDB:
 
     def save_metadata_info(self, db_schema: List[DBSpec], buff_limit: int):
         json_obj = {
-            "db_schema": [dataclasses.asdict(db_i) for db_i in db_schema],
+            "db_schema": [asdict(db_i) for db_i in db_schema],
             "buff_limit": buff_limit,
         }
         save_json_file(self.metadata_file, json_obj)
@@ -452,7 +483,7 @@ class FReadDB:
             for env_i in self.env.values():
                 env_i.close()
 
-    def compress_subdatabase(self, db_name: str):
+    def compress_subdatabase(self, db_name: str, print_status=True):
         if not self.split_subdatabases:
             raise ValueError(
                 "Error: Cannot compress subdatabase, please use compress function"
@@ -469,13 +500,13 @@ class FReadDB:
             print(message)
         os.rename(new_dir, org_dir)
         size_curr = os.stat(org_dir).st_size
-
-        print(
-            f"{db_name} : {100 - size_curr / size_org *100:.2f}% - {get_file_size(size_curr)}/{get_file_size(size_org)}"
-        )
+        if print_status:
+            print(
+                f"{db_name} : {100 - size_curr / size_org *100:.2f}% - {get_file_size(size_curr)}/{get_file_size(size_org)}"
+            )
         return size_org, size_curr
 
-    def compress(self) -> None:
+    def compress(self, print_status=True) -> None:
         """
         Copy current env to new one (reduce file size)
         :return:
@@ -493,21 +524,25 @@ class FReadDB:
                 print(message)
             os.rename(new_dir, self.db_file)
             size_curr = os.stat(self.db_file).st_size
-            print(
-                f"Compressed: {100 - size_curr / size_org *100:.2f}% - {get_file_size(size_curr)}/{get_file_size(size_org)}"
-            )
+            if print_status:
+                print(
+                    f"Compressed: {100 - size_curr / size_org *100:.2f}% - {get_file_size(size_curr)}/{get_file_size(size_org)}"
+                )
         else:
             total_org, total_cur = 0, 0
             for db_name in self.db_schema.keys():
-                size_org, size_curr = self.compress_subdatabase(db_name)
+                size_org, size_curr = self.compress_subdatabase(
+                    db_name, print_status=print_status
+                )
                 total_org += size_org
                 total_cur += size_curr
-            print(
-                f"Compressed: {100 - total_cur / total_org *100:.2f}% - {get_file_size(total_cur)}/{get_file_size(total_org)}"
-            )
+            if print_status:
+                print(
+                    f"Compressed: {100 - total_cur / total_org *100:.2f}% - {get_file_size(total_cur)}/{get_file_size(total_org)}"
+                )
 
     def get_random_key(self, db_name) -> Any:
-        db_schema = self.db_schema[db_name].__dict__
+        db_schema = self.db_schema[db_name].get_key_args()
         with self.env[db_name].begin(db=self.dbs[db_name], write=False) as txn:
             random_index = random.randint(0, self.get_number_items_from(db_name))
             cur = txn.cursor()
@@ -522,18 +557,20 @@ class FReadDB:
     def get_iter_integerkey(
         self, db_name: str, from_i: int = 0, to_i: int = -1, get_values: bool = True
     ) -> Iterator:
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
+        db_value_args = self.db_schema[db_name].get_value_args()
         with self.env[db_name].begin(db=self.dbs[db_name], write=False) as txn:
             if to_i == -1:
                 to_i = self.get_number_items_from(db_name)
             cur = txn.cursor()
-            cur.set_range(serialize_key(from_i, **db_schema))
+            cur.first()
+            cur.set_range(serialize_key(from_i, **db_key_args))
             for item in cur.iternext(values=get_values):
                 if get_values:
                     key, value = item
                 else:
                     key = item
-                key = deserialize_key(key, **db_schema)
+                key = deserialize_key(key, **db_key_args)
                 if not isinstance(key, int):
                     raise ValueError(
                         f"This function used for integerkey databases. This is {type(key)} key database"
@@ -541,7 +578,7 @@ class FReadDB:
                 if key > to_i:
                     break
                 if get_values:
-                    value = deserialize_value(value, **db_schema)
+                    value = deserialize_value(value, **db_value_args)
                     yield key, value
                 else:
                     yield key
@@ -550,34 +587,51 @@ class FReadDB:
     def get_iter_with_prefix(
         self, db_name: str, prefix: Any, get_values=True
     ) -> Iterator:
-        db_schema = self.db_schema[db_name].__dict__
-
+        db_key_args = self.db_schema[db_name].get_key_args()
+        db_value_args = self.db_schema[db_name].get_value_args()
         with self.env[db_name].begin(db=self.dbs[db_name], write=False) as txn:
             cur = txn.cursor()
-            prefix = serialize_key(prefix, **db_schema)
-            cur.set_range(prefix)
+            prefix = serialize_key(prefix, **db_key_args)
+            status = cur.set_range(prefix)
+            if status:
+                range_key = cur.key()
+            else:
+                return
 
-            while cur.key().startswith(prefix) is True:
+            while status and cur.key().startswith(prefix) is True:
                 try:
                     if cur.key() and not cur.key().startswith(prefix):
                         continue
-                    key = deserialize_key(
-                        cur.key(),
-                        **db_schema,
-                    )
+                    key = deserialize_key(cur.key(), **db_key_args)
                     if get_values:
-                        value = deserialize_value(cur.value(), **db_schema)
+                        value = deserialize_value(cur.value(), **db_value_args)
                         yield key, value
                     else:
                         yield key
                 except Exception as message:
                     print(message)
-                cur.next()
+                status = cur.next()
+
+            status = cur.set_range(range_key)
+            status = cur.prev()
+            while status and cur.key().startswith(prefix) is True:
+                try:
+                    if cur.key() and not cur.key().startswith(prefix):
+                        continue
+                    key = deserialize_key(cur.key(), **db_key_args)
+                    if get_values:
+                        value = deserialize_value(cur.value(), **db_value_args)
+                        yield key, value
+                    else:
+                        yield key
+                except Exception as message:
+                    print(message)
+                status = cur.prev()
 
     def is_available(self, db_name: str, key_obj: str) -> bool:
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
         with self.env[db_name].begin(db=self.dbs[db_name]) as txn:
-            key_obj = serialize_key(key_obj, **db_schema)
+            key_obj = serialize_key(key_obj, **db_key_args)
             if key_obj:
                 try:
                     value_obj = txn.get(key_obj)
@@ -588,9 +642,9 @@ class FReadDB:
         return False
 
     def get_value_byte_size(self, db_name: str, key_obj: Any) -> Union[int, None]:
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
         with self.env[db_name].begin(db=self.dbs[db_name], buffers=True) as txn:
-            key_obj = serialize_key(key_obj, **db_schema)
+            key_obj = serialize_key(key_obj, **db_key_args)
             if key_obj:
                 try:
                     value_obj = txn.get(key_obj)
@@ -601,7 +655,8 @@ class FReadDB:
             return None
 
     def get_values(self, db_name: str, key_objs: List, get_deserialize: bool = True):
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
+        db_value_args = self.db_schema[db_name].get_value_args()
         with self.env[db_name].begin(db=self.dbs[db_name], buffers=True) as txn:
             if isinstance(key_objs, numpy.ndarray):
                 key_objs = key_objs.tolist()
@@ -614,14 +669,14 @@ class FReadDB:
             ):
                 return responds
 
-            key_objs = [serialize_key(k, **db_schema) for k in key_objs]
+            key_objs = [serialize_key(k, **db_key_args) for k in key_objs]
             for k, v in txn.cursor(self.dbs[db_name]).getmulti(key_objs):
                 if not v:
                     continue
-                k = deserialize_key(k, **db_schema)
+                k = deserialize_key(k, **db_key_args)
                 if get_deserialize:
                     try:
-                        v = deserialize_value(v, **db_schema)
+                        v = deserialize_value(v, **db_value_args)
                     except Exception as message:
                         print(message)
                 responds[k] = v
@@ -629,9 +684,10 @@ class FReadDB:
         return responds
 
     def get_value(self, db_name: str, key_obj: Any, get_deserialize: bool = True):
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
+        db_value_args = self.db_schema[db_name].get_value_args()
         with self.env[db_name].begin(db=self.dbs[db_name], buffers=True) as txn:
-            key_obj = serialize_key(key_obj, **db_schema)
+            key_obj = serialize_key(key_obj, **db_key_args)
             responds = None
             if not key_obj:
                 return responds
@@ -641,7 +697,7 @@ class FReadDB:
                     return responds
                 responds = value_obj
                 if get_deserialize:
-                    responds = deserialize_value(value_obj, **db_schema)
+                    responds = deserialize_value(value_obj, **db_value_args)
 
             except Exception as message:
                 print(message)
@@ -664,7 +720,8 @@ class FReadDB:
         from_i: int = 0,
         to_i: int = -1,
     ):
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
+        db_value_args = self.db_schema[db_name].get_value_args()
         if to_i == -1:
             to_i = self.get_number_items_from(db_name)
 
@@ -682,9 +739,9 @@ class FReadDB:
                     key = db_obj
                 try:
                     if deserialize_obj:
-                        key = deserialize_key(key, **db_schema)
+                        key = deserialize_key(key, **db_key_args)
                         if get_values:
-                            value = deserialize_value(value, **db_schema)
+                            value = deserialize_value(value, **db_value_args)
                     if get_values:
                         return_obj = (key, value)
                         yield return_obj
@@ -697,7 +754,7 @@ class FReadDB:
                     raise Exception
 
     def delete(self, db_name: str, key: Any, with_prefix: bool = False) -> Any:
-        db_schema = self.db_schema[db_name].__dict__
+        db_key_args = self.db_schema[db_name].get_key_args()
         if not (
             isinstance(key, list) or isinstance(key, set) or isinstance(key, tuple)
         ):
@@ -717,7 +774,7 @@ class FReadDB:
         ) as txn:
             for k in key:
                 try:
-                    status = txn.delete(serialize_key(k, **db_schema))
+                    status = txn.delete(serialize_key(k, **db_key_args))
                     if status:
                         deleted_items += 1
                 except Exception as message:
@@ -819,7 +876,7 @@ class FReadDB:
         buff_limit=LMDB_BUFF_LIMIT,
     ) -> bool:
         db = self.dbs[db_name]
-        db_schema = self.db_schema[db_name].__dict__
+        db_schema = self.db_schema[db_name].get_args()
 
         buff = []
         p_bar = None
@@ -892,32 +949,32 @@ class FReadDB:
         return True
 
     def save_buff(self) -> bool:
-        for db_name, buff in self.buff.items():
+        while self.buff:
+            gc.collect()
+            db_name, buff = self.buff.popitem()
             self.write(
                 self.env[db_name],
                 self.dbs[db_name],
                 buff,
-                **self.db_schema[db_name].__dict__,
+                **self.db_schema[db_name].get_args(),
             )
+        del self.buff
+        gc.collect()
+        self.buff = defaultdict(list)
+        self.buff_size = 0
         return True
 
     def add_buff(
         self, db_name: str, key: Any, value: Any, is_serialize_value: bool = True
     ) -> bool:
         if is_serialize_value:
-            value = serialize_value(value, **self.db_schema[db_name].__dict__)
-            self.buff_size += len(value)
-        else:
-            # Assign default size of value 40 bytes
-            self.buff_size += 40960
+            value = serialize_value(value, **self.db_schema[db_name].get_value_args())
+        self.buff_size += sys.getsizeof(key) + sys.getsizeof(value)
 
         self.buff[db_name].append([key, value])
         if self.buff_size > self.buff_limit:
             self.save_buff()
-            del self.buff
-            gc.collect()
-            self.buff = defaultdict(list)
-            self.buff_size = 0
+
         return True
 
     def delete_buff(self, db_name: str, key: Any) -> bool:

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "freaddb"
-version = "0.0.6"
+version = "0.0.8"
 description = "Fast Read DB"
 authors = ["Phuc Nguyen <phucnt.ty@gmail.com>"]
 homepage = "https://github.com/phucty/freaddb"

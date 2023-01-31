@@ -1,6 +1,7 @@
 import shutil
 
 from freaddb.db_lmdb import DBSpec, FReadDB, ToBytes, profile
+from scripts import bench
 from tests import test_freaddb
 
 
@@ -124,9 +125,11 @@ def run_readme_example():
 
 
 if __name__ == "__main__":
-    run_readme_example()
+    # run_readme_example()
     # run_test()
-    # test_freaddb.test_db_basic()
+    test_freaddb.test_db_basic()
     # test_freaddb.test_db_basic_split_databases()
     # test_freaddb.test_db_large()
     # test_freaddb.test_db_large_split()
+    # test_freaddb.test_db_large_qid_split()
+    # bench.bench_trie_vs_lmdb(limit=100_000_0)
